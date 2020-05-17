@@ -65,6 +65,7 @@ macro make_postbox*(name, body: untyped): untyped =
 
     let ipontoon = ident fmt"{name}Pontoon"
     let idestruct = ident "=destroy"
+    let icopy = ident "="
 
     # work out deliverer procs
     var deliverers = nnkStmtList.newTree()
@@ -81,6 +82,13 @@ macro make_postbox*(name, body: untyped): untyped =
                 incl self.pontoon.flags, Disposed
                 self.pontoon.mail.reset
                 self.pontoon = nil
+    deliverers.add moop
+
+    # mailboxes have unique owners, so we must kill the copy constructor here
+    moop = quote:
+        proc `icopy`*(dest: var `name`; src: `name`) {.error.} =
+            `idestruct`(dest)
+            dest.pontoon = src.pontoon
     deliverers.add moop
 
     let ibox = ident "box"
