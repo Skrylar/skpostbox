@@ -62,6 +62,7 @@ macro make_postbox*(name, body: untyped): untyped =
     #! auto-complete will show stupid names like "postbox`gensym12610090"
     let ipostbox = ident "postbox"
     let iletter = ident "letter"
+    let ioutput = ident "output"
 
     # work out acceptor procs
     var acceptors = nnkStmtList.newTree()
@@ -70,13 +71,15 @@ macro make_postbox*(name, body: untyped): untyped =
         var discriminator = ident fmt"PB{name}Kind{$c}"
         var sealed = ident fmt"sealed_{$c}"
         var p = quote:
-            proc get_acceptor*(`ipostbox`: type[`name`]; `iletter`: type[`c`]):
-                proc(`ipostbox`, `iletter`: pointer) {.cdecl.} =
-                    return proc(`ipostbox`, `iletter`: pointer) {.cdecl.} =
-                        var a = cast[ptr `name`](`ipostbox`)
-                        var b = cast[ptr `c`](`iletter`)
-                        var c = `letter_type`(kind: `discriminator`, `sealed`: b[])
-                        a[].post(c)
+            proc get_acceptor*(`ipostbox`: var `name`,
+                `iletter`: type[`c`],
+                `ioutput`: var PostboxAcceptor) =
+                    get_acceptor(`ipostbox`, `ioutput`,
+                        proc(`ipostbox`, `iletter`: pointer) {.cdecl.} =
+                            var a = cast[ptr `name`](`ipostbox`)
+                            var b = cast[ptr `c`](`iletter`)
+                            var c = `letter_type`(kind: `discriminator`, `sealed`: b[])
+                            a[].post(c))
         acceptors.add p
 
     # build up actual mailbox object
@@ -88,7 +91,9 @@ macro make_postbox*(name, body: untyped): untyped =
         newEmptyNode(),
         nnkObjectTy.newTree(
             newEmptyNode(),
-            newEmptyNode(),
+            nnkOfInherit.newTree(
+                ident "PostboxBase"
+            ),
             nnkRecList.newTree(
                 nnkIdentDefs.newTree(
                     newIdentNode("mail"),
@@ -116,6 +121,67 @@ macro make_postbox*(name, body: untyped): untyped =
         poster,
         acceptors
     )
+
+type
+    PostboxAcceptor* = object
+        postbox: pointer ## Which postbox this acceptor is from
+        id: int ## ID of this acceptor in the postboxes tracking array
+        actuator: proc(postbox, letter: pointer) {.cdecl.}
+
+    PostboxBase* = object of RootObj
+        handles: seq[ptr PostboxAcceptor]
+
+proc dead*(self: PostboxAcceptor): bool =
+    ## Checks if the postbox this acceptor is attached to is dead.
+    return self.postbox == nil
+
+proc post*(self: PostboxAcceptor; letter: pointer): bool =
+    ## Posts the message to a post box. Returns true if it was posted or
+    ## false if the postbox is dead. Internal function for event emitters
+    ## to use.
+    if self.dead: return false
+    self.actuator(self.postbox, letter)
+    return true
+
+proc send_death_notice*(list: seq[ptr PostboxAcceptor]) =
+    ## Notifies every post box in the sequence that its postbox is now dead.
+    ## Internal function for postboxes to use.
+    for x in list:
+        x.postbox = nil
+
+proc `=`*(dest: var PostboxAcceptor; src: PostboxAcceptor) =
+    # ignore self-assignments
+    if equalMem(addr dest, unsafeaddr src, PostboxAcceptor.sizeof):
+        return
+    # copy data and register new copy with the postbox
+    dest.postbox = src.postbox
+    dest.actuator = src.actuator
+    if not dest.dead:
+        var p = cast[ptr PostboxBase](dest.postbox)
+        dest.id = p.handles.len+1
+        p.handles.add addr dest
+
+proc `=destroy`*(dest: var PostboxAcceptor) =
+    if dest.dead: return
+    var p = cast[ptr PostboxBase](dest.postbox)
+
+    # TODO locking, in threaded builds
+    # immitate `del` but update handle id afterward
+    let did = dest.id-1
+    p.handles[did] = p.handles[p.handles.high]
+    p.handles[did].id = did+1
+    setLen(p.handles, p.handles.len-1)
+
+    dest.postbox = nil
+
+proc get_acceptor*(box: var PostboxBase;
+    output: var PostboxAcceptor;
+    actuator: proc(a, b: pointer) {.cdecl.}) =
+        `=destroy`(output)
+        output.postbox = addr box
+        output.id = box.handles.len+1
+        output.actuator = actuator
+        box.handles.add(addr output)
 
 type
     MicrowaveSetting* = object
@@ -165,6 +231,10 @@ var y = MicrowaveBeep()
 var z = MicrowaveSetting(heat: 500)
 
 dump x
-get_acceptor(Donk, MicrowaveBeep)(addr x, addr y)
-get_acceptor(Donk, MicrowaveSetting)(addr x, addr z)
+
+var h: PostboxAcceptor
+get_acceptor(x, MicrowaveBeep, h)
+var e = MicrowaveBeep()
+dump h.post(addr e)
+
 dump x
