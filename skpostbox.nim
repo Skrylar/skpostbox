@@ -62,7 +62,6 @@ macro make_postbox*(name, body: untyped): untyped =
     #! auto-complete will show stupid names like "postbox`gensym12610090"
     let ipostbox = ident "postbox"
     let iletter = ident "letter"
-    let ioutput = ident "output"
 
     # work out deliverer procs
     var deliverers = nnkStmtList.newTree()
@@ -71,10 +70,9 @@ macro make_postbox*(name, body: untyped): untyped =
         var discriminator = ident fmt"PB{name}Kind{$c}"
         var sealed = ident fmt"sealed_{$c}"
         var p = quote:
-            proc get_deliverer*(`ipostbox`: var `name`,
-                `iletter`: type[`c`],
-                `ioutput`: var PostboxDeliverer) =
-                    get_deliverer(`ipostbox`, `ioutput`,
+            proc get_deliverer*(`ipostbox`: ref `name`,
+                `iletter`: type[`c`]): PostboxDeliverer =
+                    return get_deliverer(`ipostbox`,
                         proc(`ipostbox`, `iletter`: pointer) {.cdecl.} =
                             var a = cast[ptr `name`](`ipostbox`)
                             var b = cast[ptr `c`](`iletter`)
@@ -123,71 +121,38 @@ macro make_postbox*(name, body: untyped): untyped =
     )
 
 type
+    PostboxTombstone = ref object
+        p: pointer
+
     PostboxDeliverer* = object
-        postbox: pointer ## Which postbox this deliverer is from
-        id: int ## ID of this deliverer in the postboxes tracking array
+        postbox: PostboxTombstone
         actuator: proc(postbox, letter: pointer) {.cdecl.}
 
     PostboxBase* = object of RootObj
-        handles: seq[ptr PostboxDeliverer]
+        tombstone: PostboxTombstone
 
 proc dead*(self: PostboxDeliverer): bool =
     ## Checks if the postbox this deliverer is attached to is dead.
-    return self.postbox == nil
+    return self.postbox.p == nil
 
 proc post*(self: PostboxDeliverer; letter: pointer): bool =
     ## Posts the message to a post box. Returns true if it was posted or
     ## false if the postbox is dead. Internal function for event emitters
     ## to use.
     if self.dead: return false
-    self.actuator(self.postbox, letter)
+    self.actuator(self.postbox.p, letter)
     return true
 
-proc send_death_notice*(box: var PostboxBase) =
-    ## Internal function for postboxes to use.
-    for x in box.handles:
-        x.postbox = nil
-    set_len(box.handles, 0)
+proc get_deliverer*(box: ref PostboxBase;
+    actuator: proc(a, b: pointer) {.cdecl.}): PostboxDeliverer =
+        if box.tombstone == nil:
+            box.tombstone = new(PostboxTombstone)
+            box.tombstone.p = cast[pointer](box)
+        result.postbox = box.tombstone
+        result.actuator = actuator
 
-proc `=destroy`*(dest: var PostboxDeliverer) =
-    echo "handle destructor"
-    if dest.dead: return
-    var p = cast[ptr PostboxBase](dest.postbox)
-
-    # TODO locking, in threaded builds
-    # immitate `del` but update handle id afterward
-    let did = dest.id-1
-    dump did
-    #! don't trigger the lifecycle procs here
-    if did < p.handles.high:
-        swap(p.handles[did], p.handles[p.handles.high])
-        dump p.handles[did][]
-        p.handles[did].id = did+1
-    setLen(p.handles, p.handles.len-1)
-    dump(p.handles.len)
-
-    zeroMem(addr dest, PostboxDeliverer.sizeof)
-
-proc `=`*(dest: var PostboxDeliverer; src: PostboxDeliverer) =
-    echo "handle copier"
-    `=destroy`(dest)
-    # copy data and register new copy with the postbox
-    dest.postbox = src.postbox
-    dest.actuator = src.actuator
-    if not dest.dead:
-        var p = cast[ptr PostboxBase](dest.postbox)
-        dest.id = p.handles.len+1
-        p.handles.add addr dest
-        dump p.handles.len
-
-proc get_deliverer*(box: var PostboxBase;
-    output: var PostboxDeliverer;
-    actuator: proc(a, b: pointer) {.cdecl.}) =
-        `=destroy`(output)
-        output.postbox = addr box
-        output.id = box.handles.len+1
-        output.actuator = actuator
-        box.handles.add(addr output)
+proc `=destroy`*(box: var PostboxBase) =
+    box.tombstone.p = nil
 
 type
     MicrowaveSetting* = object
@@ -232,35 +197,10 @@ expandMacros:
 #     var c`gensym12765125 = PBDonkLetter(kind: PBDonkKindMicrowaveSetting, sealed_MicrowaveSetting: b`gensym12765124[])
 #     a`gensym12765123[].post(c`gensym12765125)
 
-
-proc `=destroy`(self: var PostboxBase) =
-    echo "mailbox destructor"
-    self.send_death_notice
-
-var x = Donk()
+var x = new(Donk)
 var y = MicrowaveBeep()
 var z = MicrowaveSetting(heat: 500)
 
-dump x
-
-var womp: seq[PostboxDeliverer]
-var wamp: seq[PostboxDeliverer]
-var wump: seq[PostboxDeliverer]
-
-var h: PostboxDeliverer
-get_deliverer(x, MicrowaveBeep, h)
-
-echo "womp"
-womp.add(h)
-echo "wamp"
-wamp.add(h)
-echo "wump"
-wump.add(h)
-
+h = get_deliverer(x, MicrowaveBeep)
 var e = MicrowaveBeep()
-dump h.post(addr e)
-dump h.post(addr e)
-
-dump womp
-
-dump x
+h.post(addr e)
