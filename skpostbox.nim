@@ -63,29 +63,50 @@ macro make_postbox*(name, body: untyped): untyped =
     let ipostbox = ident "postbox"
     let iletter = ident "letter"
 
+    let ipontoon = ident fmt"{name}Pontoon"
+    let idestruct = ident "=destroy"
+
     # work out deliverer procs
     var deliverers = nnkStmtList.newTree()
+
+    var moop = quote:
+        proc maybe_init(self: var `name`) =
+            if self.pontoon == nil:
+                self.pontoon = new(`ipontoon`)
+    deliverers.add moop
+
+    moop = quote:
+        proc `idestruct`*(self: var `name`) =
+            if self.pontoon != nil:
+                incl self.pontoon.flags, Disposed
+                self.pontoon.mail.reset
+                self.pontoon = nil
+    deliverers.add moop
+
+    let ibox = ident "box"
+    moop = quote:
+        proc post*(`ibox`: var `ipontoon`; `iletter`: `letter_ident`) =
+            box.mail.add(`iletter`)
+    deliverers.add moop
+
     for c in body.children:
         var letter_type = ident fmt"PB{name}Letter"
         var discriminator = ident fmt"PB{name}Kind{$c}"
         var sealed = ident fmt"sealed_{$c}"
         var p = quote:
-            proc get_deliverer*(`ipostbox`: ref `name`,
+            proc get_deliverer*(`ipostbox`: var `name`,
                 `iletter`: type[`c`]): PostboxDeliverer =
-                    return get_deliverer(`ipostbox`,
+                    maybe_init(`ipostbox`)
+                    return get_deliverer(`ipostbox`.pontoon,
                         proc(`ipostbox`, `iletter`: pointer) {.cdecl.} =
-                            var a = cast[ptr `name`](`ipostbox`)
+                            var a = cast[ref `ipontoon`](`ipostbox`)
                             var b = cast[ptr `c`](`iletter`)
-                            var c = `letter_type`(kind: `discriminator`, `sealed`: b[])
-                            a[].post(c))
+                            a[].post(`letter_type`(kind: `discriminator`, `sealed`: b[])))
         deliverers.add p
 
-    # build up actual mailbox object
-    var mailbox = nnkTypeDef.newTree(
-        nnkPostfix.newTree(
-            newIdentNode("*"),
-            name
-        ),
+    # build the internal mailbox object
+    var pontoon = nnkTypeDef.newTree(
+        ipontoon,
         newEmptyNode(),
         nnkObjectTy.newTree(
             newEmptyNode(),
@@ -105,54 +126,69 @@ macro make_postbox*(name, body: untyped): untyped =
         )
     )
 
-    let ibox = ident "box"
-    var poster = quote:
-        proc post*(`ibox`: var `name`; `iletter`: `letter_ident`) =
-            box.mail.add(`iletter`)
+    # now the unique pointer that owns the mailbox
+    var mailbox = nnkTypeDef.newTree(
+        nnkPostfix.newTree(
+            newIdentNode("*"),
+            name
+        ),
+        newEmptyNode(),
+        nnkObjectTy.newTree(
+            newEmptyNode(),
+            newEmptyNode(),
+            nnkRecList.newTree(
+                nnkIdentDefs.newTree(
+                    newIdentNode("pontoon"),
+                    nnkRefTy.newTree(
+                        ipontoon
+                    ),
+                    newEmptyNode()
+                )
+            )
+        )
+    )
 
     return nnkStmtList.newTree(
         nnkTypeSection.newTree(
             discriminator,
             letter,
+            pontoon,
             mailbox
         ),
-        poster,
         deliverers
     )
 
 type
-    PostboxTombstone = ref object
-        p: pointer
-
-    PostboxDeliverer* = object
-        postbox: PostboxTombstone
-        actuator: proc(postbox, letter: pointer) {.cdecl.}
+    PostboxFlag* = enum
+        Disposed
+    
+    PostboxFlags* = set[PostboxFlag]
 
     PostboxBase* = object of RootObj
-        tombstone: PostboxTombstone
+        flags: PostboxFlags
+
+    PostboxDeliverer* = object
+        postbox: ref PostboxBase
+        actuator: proc(postbox, letter: pointer) {.cdecl.}
 
 proc dead*(self: PostboxDeliverer): bool =
     ## Checks if the postbox this deliverer is attached to is dead.
-    return self.postbox.p == nil
+    return Disposed in self.postbox.flags
 
 proc post*(self: PostboxDeliverer; letter: pointer): bool =
     ## Posts the message to a post box. Returns true if it was posted or
     ## false if the postbox is dead. Internal function for event emitters
     ## to use.
     if self.dead: return false
-    self.actuator(self.postbox.p, letter)
+    self.actuator(cast[pointer](self.postbox), letter)
     return true
 
 proc get_deliverer*(box: ref PostboxBase;
     actuator: proc(a, b: pointer) {.cdecl.}): PostboxDeliverer =
-        if box.tombstone == nil:
-            box.tombstone = new(PostboxTombstone)
-            box.tombstone.p = cast[pointer](box)
-        result.postbox = box.tombstone
-        result.actuator = actuator
-
-proc `=destroy`*(box: var PostboxBase) =
-    box.tombstone.p = nil
+        if likely(Disposed notin box.flags):
+            result.postbox = box
+            result.actuator = actuator
+        # else: result is initialized to zero
 
 type
     MicrowaveSetting* = object
@@ -197,10 +233,10 @@ expandMacros:
 #     var c`gensym12765125 = PBDonkLetter(kind: PBDonkKindMicrowaveSetting, sealed_MicrowaveSetting: b`gensym12765124[])
 #     a`gensym12765123[].post(c`gensym12765125)
 
-var x = new(Donk)
+var x = Donk()
 var y = MicrowaveBeep()
 var z = MicrowaveSetting(heat: 500)
 
-h = get_deliverer(x, MicrowaveBeep)
+var h = get_deliverer(x, MicrowaveBeep)
 var e = MicrowaveBeep()
-h.post(addr e)
+discard h.post(addr e)
