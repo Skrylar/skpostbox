@@ -143,16 +143,34 @@ proc post*(self: PostboxDeliverer; letter: pointer): bool =
     self.actuator(self.postbox, letter)
     return true
 
-proc send_death_notice*(list: seq[ptr PostboxDeliverer]) =
-    ## Notifies every post box in the sequence that its postbox is now dead.
+proc send_death_notice*(box: var PostboxBase) =
     ## Internal function for postboxes to use.
-    for x in list:
+    for x in box.handles:
         x.postbox = nil
+    set_len(box.handles, 0)
+
+proc `=destroy`*(dest: var PostboxDeliverer) =
+    echo "handle destructor"
+    if dest.dead: return
+    var p = cast[ptr PostboxBase](dest.postbox)
+
+    # TODO locking, in threaded builds
+    # immitate `del` but update handle id afterward
+    let did = dest.id-1
+    dump did
+    #! don't trigger the lifecycle procs here
+    if did < p.handles.high:
+        swap(p.handles[did], p.handles[p.handles.high])
+        dump p.handles[did][]
+        p.handles[did].id = did+1
+    setLen(p.handles, p.handles.len-1)
+    dump(p.handles.len)
+
+    zeroMem(addr dest, PostboxDeliverer.sizeof)
 
 proc `=`*(dest: var PostboxDeliverer; src: PostboxDeliverer) =
-    # ignore self-assignments
-    if equalMem(addr dest, unsafeaddr src, PostboxDeliverer.sizeof):
-        return
+    echo "handle copier"
+    `=destroy`(dest)
     # copy data and register new copy with the postbox
     dest.postbox = src.postbox
     dest.actuator = src.actuator
@@ -160,19 +178,7 @@ proc `=`*(dest: var PostboxDeliverer; src: PostboxDeliverer) =
         var p = cast[ptr PostboxBase](dest.postbox)
         dest.id = p.handles.len+1
         p.handles.add addr dest
-
-proc `=destroy`*(dest: var PostboxDeliverer) =
-    if dest.dead: return
-    var p = cast[ptr PostboxBase](dest.postbox)
-
-    # TODO locking, in threaded builds
-    # immitate `del` but update handle id afterward
-    let did = dest.id-1
-    p.handles[did] = p.handles[p.handles.high]
-    p.handles[did].id = did+1
-    setLen(p.handles, p.handles.len-1)
-
-    dest.postbox = nil
+        dump p.handles.len
 
 proc get_deliverer*(box: var PostboxBase;
     output: var PostboxDeliverer;
@@ -226,15 +232,35 @@ expandMacros:
 #     var c`gensym12765125 = PBDonkLetter(kind: PBDonkKindMicrowaveSetting, sealed_MicrowaveSetting: b`gensym12765124[])
 #     a`gensym12765123[].post(c`gensym12765125)
 
+
+proc `=destroy`(self: var PostboxBase) =
+    echo "mailbox destructor"
+    self.send_death_notice
+
 var x = Donk()
 var y = MicrowaveBeep()
 var z = MicrowaveSetting(heat: 500)
 
 dump x
 
+var womp: seq[PostboxDeliverer]
+var wamp: seq[PostboxDeliverer]
+var wump: seq[PostboxDeliverer]
+
 var h: PostboxDeliverer
 get_deliverer(x, MicrowaveBeep, h)
+
+echo "womp"
+womp.add(h)
+echo "wamp"
+wamp.add(h)
+echo "wump"
+wump.add(h)
+
 var e = MicrowaveBeep()
 dump h.post(addr e)
+dump h.post(addr e)
+
+dump womp
 
 dump x
