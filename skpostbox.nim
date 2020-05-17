@@ -64,23 +64,23 @@ macro make_postbox*(name, body: untyped): untyped =
     let iletter = ident "letter"
     let ioutput = ident "output"
 
-    # work out acceptor procs
-    var acceptors = nnkStmtList.newTree()
+    # work out deliverer procs
+    var deliverers = nnkStmtList.newTree()
     for c in body.children:
         var letter_type = ident fmt"PB{name}Letter"
         var discriminator = ident fmt"PB{name}Kind{$c}"
         var sealed = ident fmt"sealed_{$c}"
         var p = quote:
-            proc get_acceptor*(`ipostbox`: var `name`,
+            proc get_deliverer*(`ipostbox`: var `name`,
                 `iletter`: type[`c`],
-                `ioutput`: var PostboxAcceptor) =
-                    get_acceptor(`ipostbox`, `ioutput`,
+                `ioutput`: var PostboxDeliverer) =
+                    get_deliverer(`ipostbox`, `ioutput`,
                         proc(`ipostbox`, `iletter`: pointer) {.cdecl.} =
                             var a = cast[ptr `name`](`ipostbox`)
                             var b = cast[ptr `c`](`iletter`)
                             var c = `letter_type`(kind: `discriminator`, `sealed`: b[])
                             a[].post(c))
-        acceptors.add p
+        deliverers.add p
 
     # build up actual mailbox object
     var mailbox = nnkTypeDef.newTree(
@@ -119,23 +119,23 @@ macro make_postbox*(name, body: untyped): untyped =
             mailbox
         ),
         poster,
-        acceptors
+        deliverers
     )
 
 type
-    PostboxAcceptor* = object
-        postbox: pointer ## Which postbox this acceptor is from
-        id: int ## ID of this acceptor in the postboxes tracking array
+    PostboxDeliverer* = object
+        postbox: pointer ## Which postbox this deliverer is from
+        id: int ## ID of this deliverer in the postboxes tracking array
         actuator: proc(postbox, letter: pointer) {.cdecl.}
 
     PostboxBase* = object of RootObj
-        handles: seq[ptr PostboxAcceptor]
+        handles: seq[ptr PostboxDeliverer]
 
-proc dead*(self: PostboxAcceptor): bool =
-    ## Checks if the postbox this acceptor is attached to is dead.
+proc dead*(self: PostboxDeliverer): bool =
+    ## Checks if the postbox this deliverer is attached to is dead.
     return self.postbox == nil
 
-proc post*(self: PostboxAcceptor; letter: pointer): bool =
+proc post*(self: PostboxDeliverer; letter: pointer): bool =
     ## Posts the message to a post box. Returns true if it was posted or
     ## false if the postbox is dead. Internal function for event emitters
     ## to use.
@@ -143,15 +143,15 @@ proc post*(self: PostboxAcceptor; letter: pointer): bool =
     self.actuator(self.postbox, letter)
     return true
 
-proc send_death_notice*(list: seq[ptr PostboxAcceptor]) =
+proc send_death_notice*(list: seq[ptr PostboxDeliverer]) =
     ## Notifies every post box in the sequence that its postbox is now dead.
     ## Internal function for postboxes to use.
     for x in list:
         x.postbox = nil
 
-proc `=`*(dest: var PostboxAcceptor; src: PostboxAcceptor) =
+proc `=`*(dest: var PostboxDeliverer; src: PostboxDeliverer) =
     # ignore self-assignments
-    if equalMem(addr dest, unsafeaddr src, PostboxAcceptor.sizeof):
+    if equalMem(addr dest, unsafeaddr src, PostboxDeliverer.sizeof):
         return
     # copy data and register new copy with the postbox
     dest.postbox = src.postbox
@@ -161,7 +161,7 @@ proc `=`*(dest: var PostboxAcceptor; src: PostboxAcceptor) =
         dest.id = p.handles.len+1
         p.handles.add addr dest
 
-proc `=destroy`*(dest: var PostboxAcceptor) =
+proc `=destroy`*(dest: var PostboxDeliverer) =
     if dest.dead: return
     var p = cast[ptr PostboxBase](dest.postbox)
 
@@ -174,8 +174,8 @@ proc `=destroy`*(dest: var PostboxAcceptor) =
 
     dest.postbox = nil
 
-proc get_acceptor*(box: var PostboxBase;
-    output: var PostboxAcceptor;
+proc get_deliverer*(box: var PostboxBase;
+    output: var PostboxDeliverer;
     actuator: proc(a, b: pointer) {.cdecl.}) =
         `=destroy`(output)
         output.postbox = addr box
@@ -209,7 +209,7 @@ expandMacros:
 # proc post(box: var Donk; letter: PBDonkLetter) =
 #   add(box.mail, letter)
 
-# proc get_acceptor(postbox: type[Donk]; letter: type[MicrowaveBeep]): proc (
+# proc get_deliverer(postbox: type[Donk]; letter: type[MicrowaveBeep]): proc (
 #     postbox, letter: pointer) {.cdecl.} =
 #   return proc (postbox, letter: pointer) {.cdecl.} =
 #     var a`gensym12765120 = cast[ptr Donk](postbox)
@@ -218,7 +218,7 @@ expandMacros:
 #                                      sealed_MicrowaveBeep: b`gensym12765121[])
 #     a`gensym12765120[].post(c`gensym12765122)
 
-# proc get_acceptor(postbox: type[Donk]; letter: type[MicrowaveSetting]): proc (
+# proc get_deliverer(postbox: type[Donk]; letter: type[MicrowaveSetting]): proc (
 #     postbox, letter: pointer) {.cdecl.} =
 #   return proc (postbox, letter: pointer) {.cdecl.} =
 #     var a`gensym12765123 = cast[ptr Donk](postbox)
@@ -232,8 +232,8 @@ var z = MicrowaveSetting(heat: 500)
 
 dump x
 
-var h: PostboxAcceptor
-get_acceptor(x, MicrowaveBeep, h)
+var h: PostboxDeliverer
+get_deliverer(x, MicrowaveBeep, h)
 var e = MicrowaveBeep()
 dump h.post(addr e)
 
