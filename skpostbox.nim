@@ -14,6 +14,7 @@ macro make_postbox*(name, body: untyped): untyped =
     
     # collect enum entries for discriminator nodes
     var discriminator_nodes = nnkEnumTy.newTree(newEmptyNode())
+    discriminator_nodes.add ident(fmt"PB{name}KindEmpty")
     for c in body.children:
         discriminator_nodes.add ident(fmt"PB{name}Kind{$c}")
     
@@ -29,6 +30,16 @@ macro make_postbox*(name, body: untyped): untyped =
         nnkIdentDefs.newTree(
             ident "kind",
             ident fmt"PB{name}Kind",
+            newEmptyNode()
+        )
+    )
+
+    let iempty = ident fmt "PB{name}KindEmpty"
+    letter_nodes.add nnkOfBranch.newTree(
+        iempty,
+        nnkIdentDefs.newTree(
+            ident "nothing",
+            ident "void",
             newEmptyNode()
         )
     )
@@ -95,6 +106,24 @@ macro make_postbox*(name, body: untyped): untyped =
     moop = quote:
         proc post*(`ibox`: var `ipontoon`; `iletter`: `letter_ident`) =
             box.mail.add(`iletter`)
+    deliverers.add moop
+
+    moop = quote:
+        iterator items(`ibox`: var `name`): lent `letter_ident` =
+            var i = 0
+            let c = `ibox`.pontoon.mail.len
+            if unlikely(Dispatching in `ibox`.pontoon.flags):
+                raise newException(Defect, "Only one mailbox reader is allowed")
+            if `ibox`.pontoon != nil:
+                incl `ibox`.pontoon.flags, Dispatching
+                defer: excl `ibox`.pontoon.flags, Dispatching
+                while i < c:
+                    # return the message
+                    yield `ibox`.pontoon.mail[i]
+                    # now clear it from the box
+                    `ibox`.pontoon.mail[i] = `letter_ident`(kind: `iempty`)
+                    inc i
+                setLen(`ibox`.pontoon.mail, 0)
     deliverers.add moop
 
     for c in body.children:
@@ -168,12 +197,12 @@ macro make_postbox*(name, body: untyped): untyped =
 
 type
     PostboxFlag* = enum
-        Disposed
+        Disposed, Dispatching
     
     PostboxFlags* = set[PostboxFlag]
 
     PostboxBase* = object of RootObj
-        flags: PostboxFlags
+        flags*: PostboxFlags
 
     PostboxDeliverer* = object
         postbox: ref PostboxBase
@@ -248,3 +277,11 @@ var z = MicrowaveSetting(heat: 500)
 var h = get_deliverer(x, MicrowaveBeep)
 var e = MicrowaveBeep()
 discard h.post(addr e)
+
+for event in x:
+    case event.kind:
+    of PBDonkKindEmpty: discard
+    of PBDonkKindMicrowaveSetting:
+        echo "microwave changed to ", event.sealedMicrowaveSetting.heat
+    of PBDonkKindMicrowaveBeep:
+        echo "beeep"
