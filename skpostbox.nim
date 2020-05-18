@@ -6,7 +6,15 @@ import macros
 import strformat
 import sugar
 
+macro case_dispatch_all_unread*(name, accessor: untyped; body: varargs[untyped]): untyped =
+    ## Dispatches each unread message; conjoins an iterator with a case-of
+    ## which hides the name mangling 
+    echo treeRepr body
+    return nnkStmtList.newTree()
+
 macro make_postbox*(name, body: untyped): untyped =
+    ## Creates a new postbox type, with supporting infrastructure.
+
     # validate body of our macro
     expectKind(body, nnkStmtList)
     for c in body.children:
@@ -207,6 +215,9 @@ type
     PostboxDeliverer* = object
         postbox: ref PostboxBase
         actuator: proc(postbox, letter: pointer) {.cdecl.}
+    
+    Poster*[T] = object
+        destinations*: seq[PostboxDeliverer]
 
 proc dead*(self: PostboxDeliverer): bool =
     ## Checks if the postbox this deliverer is attached to is dead.
@@ -227,6 +238,22 @@ proc get_deliverer*(box: ref PostboxBase;
             result.actuator = actuator
         # else: result is initialized to zero
 
+proc connect*[E,T](postbox: var T; poster: var Poster[E]) =
+    mixin get_deliverer
+    poster.destinations.add(get_deliverer(postbox, E))
+
+proc post*[T](poster: var Poster[T]; message: ptr T) =
+    ## Sends a message to every destination of the poster.
+    ## Also unsubscribes any destinations who have since gone invalid.
+    var i = 0
+    while i < poster.destinations.len:
+        if not poster.destinations[i].post(message):
+            poster.destinations.del(i)
+        inc i
+
+proc post*[T](poster: var Poster[T]; message: T) =
+    poster.post(unsafeaddr message)
+
 type
     MicrowaveSetting* = object
         heat*: int
@@ -237,51 +264,27 @@ expandMacros:
         MicrowaveBeep
         MicrowaveSetting
 
-# type
-#   PBDonkKind = enum
-#     PBDonkKindMicrowaveBeep, PBDonkKindMicrowaveSetting
-#   PBDonkLetter = object
-#     case kind: PBDonkKind
-#     of PBDonkKindMicrowaveBeep:
-#       sealedMicrowaveBeep: MicrowaveBeep
-#     of PBDonkKindMicrowaveSetting:
-#       sealedMicrowaveSetting: MicrowaveSetting
-  
-#   Donk = object
-#     mail: seq[PBDonkLetter]
-
-# proc post(box: var Donk; letter: PBDonkLetter) =
-#   add(box.mail, letter)
-
-# proc get_deliverer(postbox: type[Donk]; letter: type[MicrowaveBeep]): proc (
-#     postbox, letter: pointer) {.cdecl.} =
-#   return proc (postbox, letter: pointer) {.cdecl.} =
-#     var a`gensym12765120 = cast[ptr Donk](postbox)
-#     var b`gensym12765121 = cast[ptr MicrowaveBeep](letter)
-#     var c`gensym12765122 = PBDonkLetter(kind: PBDonkKindMicrowaveBeep,
-#                                      sealed_MicrowaveBeep: b`gensym12765121[])
-#     a`gensym12765120[].post(c`gensym12765122)
-
-# proc get_deliverer(postbox: type[Donk]; letter: type[MicrowaveSetting]): proc (
-#     postbox, letter: pointer) {.cdecl.} =
-#   return proc (postbox, letter: pointer) {.cdecl.} =
-#     var a`gensym12765123 = cast[ptr Donk](postbox)
-#     var b`gensym12765124 = cast[ptr MicrowaveSetting](letter)
-#     var c`gensym12765125 = PBDonkLetter(kind: PBDonkKindMicrowaveSetting, sealed_MicrowaveSetting: b`gensym12765124[])
-#     a`gensym12765123[].post(c`gensym12765125)
-
 var x = Donk()
 var y = MicrowaveBeep()
 var z = MicrowaveSetting(heat: 500)
 
-var h = get_deliverer(x, MicrowaveBeep)
-var e = MicrowaveBeep()
-discard h.post(addr e)
+var beep_source = Poster[MicrowaveBeep]()
+connect(x, beep_source)
+beep_source.post y
 
-for event in x:
-    case event.kind:
-    of PBDonkKindEmpty: discard
-    of PBDonkKindMicrowaveSetting:
-        echo "microwave changed to ", event.sealedMicrowaveSetting.heat
-    of PBDonkKindMicrowaveBeep:
-        echo "beeep"
+# dumpTree:
+block:
+    for event in x:
+        case event.kind:
+        of PBDonkKindEmpty: discard
+        of PBDonkKindMicrowaveSetting:
+            template e: untyped = event.sealed_MicrowaveSetting
+            echo "microwave changed to ", e.heat
+        of PBDonkKindMicrowaveBeep:
+            echo "beeep"
+
+x.case_dispatch_all_unread(e):
+of MicrowaveBeep:
+    discard
+else:
+    discard
