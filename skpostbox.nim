@@ -6,11 +6,56 @@ import macros
 import strformat
 import sugar
 
-macro case_dispatch_all_unread*(name, accessor: untyped; body: varargs[untyped]): untyped =
+macro case_dispatch_all_unread*(box, accessor: untyped; body: varargs[untyped]): untyped =
     ## Dispatches each unread message; conjoins an iterator with a case-of
     ## which hides the name mangling 
     echo treeRepr body
-    return nnkStmtList.newTree()
+
+    let ievent = genSym(nskForVar, "event")
+
+    var dispatcher = nnkCaseStmt.newTree(
+        nnkDotExpr.newTree(
+            ievent,
+            ident "kind"
+        )
+    )
+
+    for c in body.children:
+        case c.kind:
+        of nnkOfBranch:
+            # replace "case Foo" with "case PB{Postbox}KindFoo"
+            # insert "template accessor = event.sealed_Foo"
+
+            let whozit = $c[0]
+            # XXX praying this always returns the non-FQN name
+            c[0] = ident fmt"PB{getTypeInst(box)}Kind{whozit}"
+            var localaccessor = nnkTemplateDef.newTree(
+                accessor,
+                newEmptyNode(),
+                newEmptyNode(),
+                nnkFormalParams.newTree(ident "untyped"),
+                nnkPragma.newTree(ident "used"),
+                newEmptyNode(),
+                nnkStmtList.newTree(
+                    nnkDotExpr.newTree(
+                        ievent,
+                        ident fmt"sealed_{whozit}"
+                    )
+                )
+            )
+            c[1].insert(0, localaccessor)
+            dispatcher.add c
+        of nnkElse:
+            # no special transform needed for this
+            dispatcher.add c
+        else:
+            error("Argument must be an Of-Clause or an Else.", c)
+
+    result = nnkForStmt.newTree(
+        ievent,
+        box,
+        nnkStmtList.newTree(dispatcher)
+    )
 
 macro make_postbox*(name, body: untyped): untyped =
     ## Creates a new postbox type, with supporting infrastructure.
@@ -269,22 +314,22 @@ var y = MicrowaveBeep()
 var z = MicrowaveSetting(heat: 500)
 
 var beep_source = Poster[MicrowaveBeep]()
+var setting_source = Poster[MicrowaveSetting]()
+
 connect(x, beep_source)
+connect(x, setting_source)
+
+dumpTree:
+    template fart: untyped {.used.} = bart
+
 beep_source.post y
+setting_source.post z
 
-# dumpTree:
-block:
-    for event in x:
-        case event.kind:
-        of PBDonkKindEmpty: discard
-        of PBDonkKindMicrowaveSetting:
-            template e: untyped = event.sealed_MicrowaveSetting
-            echo "microwave changed to ", e.heat
-        of PBDonkKindMicrowaveBeep:
-            echo "beeep"
-
-x.case_dispatch_all_unread(e):
-of MicrowaveBeep:
-    discard
-else:
-    discard
+expandMacros:
+    x.case_dispatch_all_unread(e):
+    of MicrowaveSetting:
+        echo "temperature is now ", e.heat
+    of MicrowaveBeep:
+        echo "beeeep"
+    else:
+        discard
