@@ -1,0 +1,11 @@
+= Weak References
+
+ . Double-ref: objects contain `ref` objects called _tombstones_. The tombstone is a `ptr` back to the original object. Upon `=destroy` you set the back pointer in the tombstone to nil. Then strong references become copies of the `ref` to the base object and weaks are `ref` to the tombstone.
+
+ . Pontoons: weak references are simply `ref` to the pontoon (which can be handed out, it "floats") which contains a flag to indicate it has been _disposed_ footnote:[This is similar to how `IDisposable` works in C#.]. A _buoy_ object then acts as the unique owner of the pontoon. The buoy's `=destroy` does a partial deinitialization of the pontoon and sets the disposed flag.
+
+I originally used _double-ref_ which is clean and straightforward (`ref Tombstone` is weak, `ref Frobnicator` is strong.) It also adds another heap allocation to track the tombstone.
+
+Switched to pontoons because the buoy lives on the stack (or otherwise inline to the object owning it.) So there is one ref for the postbox itself.
+
+In Postbox'es case access to the postbox itself is largely restricted. The buoy belongs to whoever is going to pick up and process messages from the postbox. Weak references belong to the deliverer objects you request form a postbox. No code other than the automatically generated boilerplate touches the internals of the postbox system.

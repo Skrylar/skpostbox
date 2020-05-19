@@ -1,0 +1,14 @@
+= Skrylar's Postbox System
+:toc: left
+
+`skpostbox` automatically generates the plumbing for a traditional message pump system.
+
+:leveloffset: +1
+
+include::overview.adoc[]
+
+include::examples.adoc[]
+
+include::thread-safety.adoc[]
+
+include::weak.adoc[]

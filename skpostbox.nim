@@ -191,7 +191,7 @@ macro make_postbox*(name, body: untyped): untyped =
                         proc(`ipostbox`, `iletter`: pointer) {.cdecl.} =
                             var a = cast[ref `ipontoon`](`ipostbox`)
                             var b = cast[ptr `c`](`iletter`)
-                            a[].post(`letter_type`(kind: `discriminator`, `sealed`: b[])))
+                            a[].post(`letter_type`(kind: `discriminator`, `sealed`: move(b[]))))
         deliverers.add p
 
     # build the internal mailbox object
@@ -298,38 +298,3 @@ proc post*[T](poster: var Poster[T]; message: ptr T) =
 
 proc post*[T](poster: var Poster[T]; message: T) =
     poster.post(unsafeaddr message)
-
-type
-    MicrowaveSetting* = object
-        heat*: int
-    MicrowaveBeep* = object
-
-expandMacros:
-    make_postbox(Donk):
-        MicrowaveBeep
-        MicrowaveSetting
-
-var x = Donk()
-var y = MicrowaveBeep()
-var z = MicrowaveSetting(heat: 500)
-
-var beep_source = Poster[MicrowaveBeep]()
-var setting_source = Poster[MicrowaveSetting]()
-
-connect(x, beep_source)
-connect(x, setting_source)
-
-dumpTree:
-    template fart: untyped {.used.} = bart
-
-beep_source.post y
-setting_source.post z
-
-expandMacros:
-    x.case_dispatch_all_unread(e):
-    of MicrowaveSetting:
-        echo "temperature is now ", e.heat
-    of MicrowaveBeep:
-        echo "beeeep"
-    else:
-        discard

@@ -1,0 +1,18 @@
+
+rule adoc
+    command = asciidoctor -a stylesheet=adoc-riak.css $in -o $out
+
+rule adoc2xml
+    command = asciidoctor -b docbook $in -o $out
+
+rule xml2md
+    command = pandoc --toc -f docbook $in -t gfm -o $out
+
+rule nim
+    command = nim -o:$out --gc:arc c $in
+
+build combined.html: adoc combined.adoc | overview.adoc thread-safety.adoc examples.adoc weak.adoc
+build combined.xml: adoc2xml combined.adoc | overview.adoc thread-safety.adoc examples.adoc weak.adoc
+build README.md: xml2md combined.xml
+
+build skpostbox: nim skpostbox.nim

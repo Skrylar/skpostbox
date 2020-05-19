@@ -1,0 +1,21 @@
+= Overview
+Postboxes have a few parts:
+
+Letter:: An object that will be later stored in to a mailbox.
+Envelope:: A variant object which holds different kinds of letters.
+Pontoon:: A `ref` object; it holds a list of unprocessed envelopes and a dead-man trigger.
+Postbox:: A handle which is a unique pointer to protect the pontoon.
+Deliverer:: An object who wraps letters in envelopes and leave them in postboxes.
+
+[NOTE]
+====
+Postboxes are strictly *single owner*. They cannot be copied, only moved.
+
+Also when the postbox is destroyed the pontoons are marked as `Disposed` so no more
+messages can be processed. This creates the standard "weak reference" pattern.
+Event senders are expected to lazily remove deliverers with dead pontoons as they
+attempt to send events.
+====
+
+== License
+ - `skpostbox` is available under Mozilla Public License, version 2 (MPL-2.)
