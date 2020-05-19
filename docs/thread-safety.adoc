@@ -1,0 +1,7 @@
+= Thread Safety
+
+Mailboxes are not presently thread-safe.
+
+Laziest option: lock on sequence access. Can code this in a couple of minutes but has the greatest amount of lock contention.
+
+Fanciest option: a lock-free stack. Dispatch from one end and append to another.

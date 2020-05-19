@@ -113,11 +113,11 @@ Manual dispatch is not recommended since it relies on knowing how
 
 Mailboxes are not presently thread-safe.
 
-1.  Laziest version: put a lock around post and iterate. Makes it thread
-    safe (technically) but has the most contention.
+Laziest option: lock on sequence access. Can code this in a couple of
+minutes but has the greatest amount of lock contention.
 
-TODO: look in to the various clever ways to make this safe (lock and
-lock-free.)
+Fanciest option: a lock-free stack. Dispatch from one end and append to
+another.
 
 # Weak References
 

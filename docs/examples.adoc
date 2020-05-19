@@ -4,18 +4,18 @@
 
 .Define your events
 ----
-include::examples.nim[tags=define-events]
+include::../examples.nim[tags=define-events]
 ----
 
 .List the events a postbox will handle
 ----
-include::examples.nim[tags=make-postbox]
+include::../examples.nim[tags=make-postbox]
 ----
 
 == Instantiating a postbox
 
 ----
-include::examples.nim[tags=instance]
+include::../examples.nim[tags=instance]
 ----
 
 Postboxes can be moved but not copied.
@@ -24,29 +24,29 @@ Postboxes can be moved but not copied.
 
 .Create posters who send single types of letters
 ----
-include::examples.nim[tags=sender]
+include::../examples.nim[tags=sender]
 ----
 
 .Connect posters to postboxes
 ----
-include::examples.nim[tags=connect]
+include::../examples.nim[tags=connect]
 ----
 
 .Send letters
 ----
-include::examples.nim[tags=post]
+include::../examples.nim[tags=post]
 ----
 
 == Processing queued events
 
 .Using the case dispatcher
 ----
-include::examples.nim[tags=dispatch-macro]
+include::../examples.nim[tags=dispatch-macro]
 ----
 
 .Manually dispatching on event kind
 ----
-include::examples.nim[tags=dispatch-manual]
+include::../examples.nim[tags=dispatch-manual]
 ----
 
 NOTE: Manual dispatch is not recommended since it relies on knowing how `make_postbox`
