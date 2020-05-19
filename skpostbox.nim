@@ -4,13 +4,10 @@
 
 import macros
 import strformat
-import sugar
 
 macro case_dispatch_all_unread*(box, accessor: untyped; body: varargs[untyped]): untyped =
     ## Dispatches each unread message; conjoins an iterator with a case-of
     ## which hides the name mangling 
-    echo treeRepr body
-
     let ievent = genSym(nskForVar, "event")
 
     var dispatcher = nnkCaseStmt.newTree(
