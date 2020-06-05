@@ -5,7 +5,7 @@
 import macros
 import strformat
 
-macro case_dispatch_all_unread*(box, accessor: untyped; body: varargs[untyped]): untyped =
+macro case_dispatch_all_unread*(box: typed; accessor: untyped; body: varargs[untyped]): untyped =
     ## Dispatches each unread message; conjoins an iterator with a case-of
     ## which hides the name mangling 
     let ievent = genSym(nskForVar, "event")
@@ -30,7 +30,7 @@ macro case_dispatch_all_unread*(box, accessor: untyped; body: varargs[untyped]):
                 accessor,
                 newEmptyNode(),
                 newEmptyNode(),
-                nnkFormalParams.newTree(ident "untyped"),
+                nnkFormalParams.newTree(ident whozit),
                 nnkPragma.newTree(ident "used"),
                 newEmptyNode(),
                 nnkStmtList.newTree(
@@ -154,12 +154,12 @@ macro make_postbox*(name, body: untyped): untyped =
 
     let ibox = ident "box"
     moop = quote:
-        proc post*(`ibox`: var `ipontoon`; `iletter`: `letter_ident`) =
+        proc post*(`ibox`: var `ipontoon`; `iletter`: owned `letter_ident`) =
             box.mail.add(`iletter`)
     deliverers.add moop
 
     moop = quote:
-        iterator items(`ibox`: var `name`): lent `letter_ident` =
+        iterator items*(`ibox`: var `name`): `letter_ident` =
             var i = 0
             let c = `ibox`.pontoon.mail.len
             if unlikely(Dispatching in `ibox`.pontoon.flags):
@@ -171,6 +171,7 @@ macro make_postbox*(name, body: untyped): untyped =
                     # return the message
                     yield `ibox`.pontoon.mail[i]
                     # now clear it from the box
+                    # XXX this causes mysterious compiler crashes sometimes
                     `ibox`.pontoon.mail[i] = `letter_ident`(kind: `iempty`)
                     inc i
                 setLen(`ibox`.pontoon.mail, 0)
