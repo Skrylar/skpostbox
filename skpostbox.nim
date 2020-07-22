@@ -161,13 +161,12 @@ macro make_postbox*(name, body: untyped): untyped =
     moop = quote:
         iterator items*(`ibox`: var `name`): `letter_ident` =
             var i = 0
-            let c = `ibox`.pontoon.mail.len
             if unlikely(Dispatching in `ibox`.pontoon.flags):
                 raise newException(Defect, "Only one mailbox reader is allowed")
             if `ibox`.pontoon != nil:
                 incl `ibox`.pontoon.flags, Dispatching
                 defer: excl `ibox`.pontoon.flags, Dispatching
-                while i < c:
+                while i < `ibox`.pontoon.mail.len:
                     # return the message
                     yield `ibox`.pontoon.mail[i]
                     # now clear it from the box
@@ -175,6 +174,11 @@ macro make_postbox*(name, body: untyped): untyped =
                     `ibox`.pontoon.mail[i] = `letter_ident`(kind: `iempty`)
                     inc i
                 setLen(`ibox`.pontoon.mail, 0)
+    deliverers.add moop
+
+    moop = quote:
+        proc len*(`ibox`: `name`): int =
+            return `ibox`.pontoon[].mail.len
     deliverers.add moop
 
     for c in body.children:
